@@ -105,8 +105,8 @@ function processPattern(pattern, values, separator) {
 
   // 2. Get the corresponding value for each placeholder in the pattern's order
   const processedValues = placeholdersInPattern.map(ph => {
-    // Return the value from the values object, or the placeholder itself if value not found
-    return values[ph] !== undefined ? values[ph] : `{${ph}}`; 
+    const v = values[ph];
+    return v !== undefined && v !== null ? String(v) : '';
   });
 
   // 3. Join the processed values using the specified separator

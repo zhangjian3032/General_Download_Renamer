@@ -84,17 +84,19 @@
 
 #dr-popup-panel {
   position: fixed;
-  width: 260px; /* Slightly wider */
+  width: 340px;
+  max-width: 90vw;
+  max-height: 70vh;
+  overflow-y: auto;
   background-color: white;
   border-radius: 8px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
   padding: 15px;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-size: 14px;
-  z-index: 2147483647; /* Highest z-index */
+  z-index: 2147483647;
   color: #333;
   border: 1px solid #bbb;
-  /* Initially hidden */
   display: none; 
   opacity: 0;
   transform: scale(0.95);
@@ -211,7 +213,8 @@
   background-color: #f0f0f0;
   padding: 2px 5px;
   border-radius: 3px;
-  word-break: break-all;
-  display: inline-block; /* Prevent stretching */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  display: inline-block;
   margin-top: 4px;
-} 
+}

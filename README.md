@@ -16,12 +16,15 @@ Are you tired of your Downloads folder becoming a disorganized graveyard of file
 - **Visual Pattern Builder:** Create filename formats with a drag-and-drop interface
 - **Smart Placeholders:** Use variables like:
   - `{domain}` (e.g., `google.com`)
+  - `{sourceUrl}` (the full download URL)
+  - `{tabUrl}` (the referrer/tab URL when available)
   - `{originalFilename}` (the name the server suggested)
   - `{date}` (YYYY-MM-DD)
   - `{time}` (HH-MM-SS)
   - `{timestamp}` (YYYY-MM-DD_HH-MM-SS)
   - `{category}` **NEW!** Auto-detected file category (Documents, Images, etc.)
   - `{ext}` (the file extension)
+- **Custom Placeholders:** Derive new placeholders from existing ones using keywords gating and a regex with a single capture group; if matched, the value is `match[1]`.
 - **🆕 Custom Categories (v1.1):** Define your own file categorization rules!
   - 11 built-in categories (Documents, Images, Videos, Audio, Code, etc.)
   - Add, edit, and delete custom categories
@@ -30,6 +33,7 @@ Are you tired of your Downloads folder becoming a disorganized graveyard of file
 - **Custom Separators:** Choose how filename parts are joined (_, -, ., space, none)
 - **Quick Toggle:** Enable/disable via a floating icon on any webpage
 - **Safe & Reliable:** Automatically sanitizes filenames and handles naming conflicts
+- **Floating Preview:** The floating panel shows both Current pattern and a Preview pattern with immediately resolvable values (e.g., domain/date/time/timestamp/tabUrl).
 
 ## 🛠️ Usage
 
@@ -42,6 +46,24 @@ Are you tired of your Downloads folder becoming a disorganized graveyard of file
    - Example: `{category}/{originalFilename}` → `Documents/report.pdf`
 5. Toggle the extension on/off using the floating icon on any webpage
 6. Download files as usual - they'll be automatically renamed and categorized!
+7. Use the floating panel to preview your current pattern and a partially resolved preview (placeholders that can be known from the current page are shown, others remain as `{placeholder}`).
+
+### 🧩 Custom Placeholders
+- Define on the Options page in the "Custom Placeholders" section:
+  - Name: the new placeholder name (e.g., `jira_id`)
+  - Base: choose an existing placeholder to derive from (e.g., `{tabUrl}` or `{domain}`)
+  - Regex: must contain exactly one capture group `()`; the value will be `match[1]`
+  - Keywords: optional comma-separated keywords; if provided, the regex only runs when at least one keyword is present in the base value
+- Behavior: if the regex does not match or keywords do not gate, the derived placeholder is considered empty and is skipped in filename joining.
+
+#### Example
+- Extract Jira issue key from the tab URL:
+  - Name: `jira_id`
+  - Base: `{tabUrl}`
+  - Regex: `([A-Z]+-\d+)`
+  - Keywords: `browse, jira`
+  - Pattern: `{jira_id}{originalFilename}{ext}`
+  - Result (if on a Jira page like `.../browse/ABC-123`): `ABC-123_report.pdf`
 
 ### 📁 Category Examples
 - **Pattern:** `{category}_{date}_{originalFilename}`
@@ -72,6 +94,13 @@ Are you tired of your Downloads folder becoming a disorganized graveyard of file
 3. Add `{category}` to your renaming pattern
 4. Customize categories as needed!
 
+## 🆕 Additional Enhancements
+
+- New placeholders: `{sourceUrl}`, `{tabUrl}`
+- Custom placeholders with keywords gating + single capture regex
+- Floating panel shows both Current and Preview patterns with immediate partial resolution
+- Empty placeholders are skipped during join (no extra separators); `{ext}` is always appended
+
 ## 🔮 Future Plans
 
 Future versions may include:
@@ -88,6 +117,11 @@ Future versions may include:
 - The download mechanism works approximately 95% of the time
 
 These issues will be addressed in upcoming updates!
+
+## ℹ️ Notes
+
+- Preview limitations: values like `{originalFilename}`, `{sourceUrl}`, and `{category}` are resolved at download time and may remain as `{placeholder}` in the floating preview.
+- Sanitization removes invalid filename characters: `\ / : * ? " < > |`.
 
 ## 📝 Feedback
 

@@ -22,18 +22,26 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- Constants ---
   const DEFAULT_PATTERN = '{date}{originalFilename}{ext}';
   const DEFAULT_SEPARATOR = '_';
-  // Store placeholders with their descriptions
-  const PLACEHOLDERS_INFO = {
+  // Built-in placeholders with their descriptions
+  const BUILTIN_PLACEHOLDERS_INFO = {
     'domain': 'The domain name of the download source',
     'timestamp': 'Full date and time (YYYYMMDD-HHMMSS)',
     'date': 'Date only (YYYYMMDD)',
     'time': 'Time only (HHMMSS)',
     'originalFilename': 'The original filename without extension',
-    'category': 'Auto-detected file category (Documents, Images, etc.)'
+    'category': 'Auto-detected file category (Documents, Images, etc.)',
+    'sourceUrl': 'Full download URL',
+    'tabUrl': 'Referrer/tab URL when available'
   };
-  const PLACEHOLDERS = Object.keys(PLACEHOLDERS_INFO);
+  const BUILTIN_PLACEHOLDERS = Object.keys(BUILTIN_PLACEHOLDERS_INFO);
+  // Dynamic placeholders (built-in + custom)
+  let PLACEHOLDERS_INFO = { ...BUILTIN_PLACEHOLDERS_INFO };
+  let PLACEHOLDERS = Object.keys(PLACEHOLDERS_INFO);
   let currentlyDraggedItem = null;
   let currentSettings = { pattern: DEFAULT_PATTERN, separator: DEFAULT_SEPARATOR };
+  const customPlaceholdersContainer = document.getElementById('custom-placeholders-container');
+  const addCustomPlaceholderBtn = document.getElementById('add-custom-placeholder-btn');
+  let currentCustomPlaceholders = [];
 
   // --- Functions ---
 
@@ -50,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
     block.dataset.placeholder = placeholder;
     block.draggable = true;
     // block.title = PLACEHOLDERS_INFO[placeholder] || 'Placeholder block'; // Remove title tooltip
-    
+
     block.addEventListener('dragstart', handleDragStart);
     block.addEventListener('dragend', handleDragEnd);
 
@@ -60,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
       block.addEventListener('dragover', handleDragOverBlock);
       block.addEventListener('drop', handleDropOnBlock);
     }
-    
+
     return block;
   }
 
@@ -89,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function populateAvailableBlocks() {
     availableBlocksList.innerHTML = ''; // Clear existing
     const sequencePlaceholders = Array.from(patternSequence.querySelectorAll('.placeholder-block'))
-                                     .map(block => block.dataset.placeholder);
+      .map(block => block.dataset.placeholder);
 
     PLACEHOLDERS.forEach(p => {
       // Only add if NOT already in the sequence
@@ -104,14 +112,144 @@ document.addEventListener('DOMContentLoaded', () => {
    * Populates the placeholder descriptions list.
    */
   function populateDescriptions() {
-      if (!placeholderDescriptionsList) return;
-      placeholderDescriptionsList.innerHTML = ''; // Clear existing
-      PLACEHOLDERS.forEach(p => {
-          const li = document.createElement('li');
-          const description = PLACEHOLDERS_INFO[p] || 'No description available.';
-          li.innerHTML = `<code>{${p}}</code> - ${description}`;
-          placeholderDescriptionsList.appendChild(li);
+    if (!placeholderDescriptionsList) return;
+    placeholderDescriptionsList.innerHTML = ''; // Clear existing
+    PLACEHOLDERS.forEach(p => {
+      const li = document.createElement('li');
+      const description = PLACEHOLDERS_INFO[p] || 'No description available.';
+      li.innerHTML = `<code>{${p}}</code> - ${description}`;
+      placeholderDescriptionsList.appendChild(li);
+    });
+  }
+
+  /**
+   * Loads custom placeholders from storage and updates dynamic placeholder lists
+   */
+  function loadCustomPlaceholdersAndUpdateLists(callback) {
+    chrome.storage.local.get(['customPlaceholders'], (result) => {
+      currentCustomPlaceholders = Array.isArray(result.customPlaceholders) ? result.customPlaceholders : [];
+      PLACEHOLDERS_INFO = { ...BUILTIN_PLACEHOLDERS_INFO };
+      currentCustomPlaceholders.forEach(cp => {
+        if (cp && cp.name) {
+          PLACEHOLDERS_INFO[cp.name] = `Custom derived from {${cp.base || 'unknown'}}`;
+        }
       });
+      PLACEHOLDERS = Object.keys(PLACEHOLDERS_INFO);
+      if (typeof callback === 'function') callback();
+    });
+  }
+
+  /**
+   * Creates a custom placeholder rule element in the UI
+   */
+  function createCustomPlaceholderElement(rule, index) {
+    const div = document.createElement('div');
+    div.className = 'custom-placeholder-rule';
+    div.dataset.index = index;
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Name (e.g., productId)';
+    nameInput.value = rule.name || '';
+
+    const baseSelect = document.createElement('select');
+    BUILTIN_PLACEHOLDERS.forEach(ph => {
+      const opt = document.createElement('option');
+      opt.value = ph;
+      opt.textContent = `{${ph}}`;
+      baseSelect.appendChild(opt);
+    });
+    baseSelect.value = rule.base || BUILTIN_PLACEHOLDERS[0];
+
+    const regexInput = document.createElement('input');
+    regexInput.type = 'text';
+    regexInput.placeholder = 'Regex with one capture group';
+    regexInput.value = rule.regex || '';
+
+    const keywordsInput = document.createElement('input');
+    keywordsInput.type = 'text';
+    keywordsInput.placeholder = 'Keywords (comma-separated, optional)';
+    keywordsInput.value = rule.keywords || '';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'delete-custom-placeholder-btn';
+    deleteBtn.textContent = 'Delete';
+
+    function save() {
+      saveCustomPlaceholders();
+      // Update lists for builder/descriptions when names change
+      loadCustomPlaceholdersAndUpdateLists(() => {
+        populateAvailableBlocks();
+        populateDescriptions();
+      });
+    }
+
+    nameInput.addEventListener('input', save);
+    baseSelect.addEventListener('change', save);
+    regexInput.addEventListener('input', save);
+    keywordsInput.addEventListener('input', save);
+    deleteBtn.addEventListener('click', () => {
+      div.remove();
+      saveCustomPlaceholders();
+      loadCustomPlaceholdersAndUpdateLists(() => {
+        populateAvailableBlocks();
+        populateDescriptions();
+      });
+    });
+
+    div.appendChild(nameInput);
+    div.appendChild(baseSelect);
+    div.appendChild(regexInput);
+    div.appendChild(keywordsInput);
+    div.appendChild(deleteBtn);
+    return div;
+  }
+
+  /**
+   * Loads and renders custom placeholders in the options UI
+   */
+  function loadCustomPlaceholderRules() {
+    chrome.storage.local.get(['customPlaceholders'], (result) => {
+      const rules = Array.isArray(result.customPlaceholders) ? result.customPlaceholders : [];
+      customPlaceholdersContainer.innerHTML = '';
+      rules.forEach((rule, idx) => {
+        const el = createCustomPlaceholderElement(rule, idx);
+        customPlaceholdersContainer.appendChild(el);
+      });
+    });
+  }
+
+  /**
+   * Saves current custom placeholders to storage
+   */
+  function saveCustomPlaceholders() {
+    const rules = [];
+    const ruleElements = customPlaceholdersContainer.querySelectorAll('.custom-placeholder-rule');
+    ruleElements.forEach(el => {
+      const inputs = el.querySelectorAll('input, select');
+      const name = inputs[0].value.trim();
+      const base = inputs[1].value;
+      const regex = inputs[2].value.trim();
+      const keywords = inputs[3].value.trim();
+      if (name && base && regex) {
+        rules.push({ name, base, regex, keywords });
+      }
+    });
+    chrome.storage.local.set({ customPlaceholders: rules }, () => {
+      // no-op
+    });
+  }
+
+  /**
+   * Adds a new custom placeholder row
+   */
+  function addNewCustomPlaceholder() {
+    const rule = { name: '', base: BUILTIN_PLACEHOLDERS[0], regex: '', keywords: '' };
+    const idx = customPlaceholdersContainer.children.length;
+    const el = createCustomPlaceholderElement(rule, idx);
+    customPlaceholdersContainer.appendChild(el);
+    const nameInput = el.querySelector('input');
+    if (nameInput) nameInput.focus();
   }
 
   /**
@@ -123,10 +261,10 @@ document.addEventListener('DOMContentLoaded', () => {
       currentSettings.separator = result.separator !== undefined ? result.separator : DEFAULT_SEPARATOR;
 
       separatorSelect.value = currentSettings.separator;
-      
+
       // Clear current sequence
       patternSequence.innerHTML = '';
-      
+
       // Reconstruct sequence from saved pattern
       const savedPlaceholders = (currentSettings.pattern.match(/\{([^}]+)\}/g) || [])
         .map(p => p.slice(1, -1))
@@ -134,32 +272,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
       savedPlaceholders.forEach(p => {
         if (PLACEHOLDERS.includes(p)) {
-           const block = createBlock(p, true);
-           patternSequence.appendChild(block);
+          const block = createBlock(p, true);
+          patternSequence.appendChild(block);
         }
       });
-      
+
       updatePreview();
       checkPlaceholderVisibility();
-      
+
       // Populate available blocks *after* building the sequence
-      populateAvailableBlocks(); 
-      
+      populateAvailableBlocks();
+
       // Ensure all blocks loaded from settings have remove buttons
       ensureRemoveButtons();
     });
   }
-  
+
   /**
    * Updates the preview text based on the current sequence and selected separator.
    */
   function updatePreview() {
     const blocks = Array.from(patternSequence.querySelectorAll('.placeholder-block'));
-    const separator = separatorSelect.value; 
+    const separator = separatorSelect.value;
     // Reconstruct preview from dataset to avoid including button text
     const preview = blocks
-        .map(b => `{${b.dataset.placeholder}}`) 
-        .join(separator); 
+      .map(b => `{${b.dataset.placeholder}}`)
+      .join(separator);
     patternPreviewText.textContent = preview;
   }
 
@@ -167,18 +305,18 @@ document.addEventListener('DOMContentLoaded', () => {
    * Shows/hides the 'Drop blocks here' placeholder text.
    */
   function checkPlaceholderVisibility() {
-      if (patternSequence.querySelector('.placeholder-block')) {
-          if(placeholderText) placeholderText.style.display = 'none';
+    if (patternSequence.querySelector('.placeholder-block')) {
+      if (placeholderText) placeholderText.style.display = 'none';
+    } else {
+      if (!placeholderText) { // Create if it doesn't exist
+        const span = document.createElement('span');
+        span.className = 'placeholder-text';
+        span.textContent = 'Drop blocks here';
+        patternSequence.appendChild(span);
       } else {
-          if(!placeholderText) { // Create if it doesn't exist
-             const span = document.createElement('span');
-             span.className = 'placeholder-text';
-             span.textContent = 'Drop blocks here';
-             patternSequence.appendChild(span);
-          } else {
-             placeholderText.style.display = 'block';
-          }
+        placeholderText.style.display = 'block';
       }
+    }
   }
 
   /**
@@ -190,7 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const finalPattern = patternPlaceholders + '{ext}';
     const separator = separatorSelect.value;
 
-    chrome.storage.local.set({ 
+    chrome.storage.local.set({
       pattern: finalPattern,
       separator: separator
     }, () => {
@@ -216,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     currentlyDraggedItem = e.target;
     e.dataTransfer.setData('text/plain', e.target.dataset.placeholder);
     e.target.classList.add('dragging');
-    if(placeholderText) placeholderText.style.display = 'none'; // Hide placeholder during drag
+    if (placeholderText) placeholderText.style.display = 'none'; // Hide placeholder during drag
   }
 
   function handleDragEnd(e) {
@@ -240,12 +378,12 @@ document.addEventListener('DOMContentLoaded', () => {
    */
   function ensureRemoveButtons() {
     const sequenceBlocks = patternSequence.querySelectorAll('.placeholder-block');
-    
+
     sequenceBlocks.forEach(block => {
       // Check if the block already has a remove button
       if (!block.querySelector('.remove-block-btn')) {
         addRemoveButton(block);
-        
+
         // Also ensure the block has drag handling for reordering
         if (!block.hasAttribute('data-has-drop-handlers')) {
           block.addEventListener('dragover', handleDragOverBlock);
@@ -260,57 +398,57 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
     patternSequence.classList.remove('drag-over');
     const placeholder = e.dataTransfer.getData('text/plain');
-    
+
     // Ensure we have a valid placeholder and the dragged item exists
     if (!placeholder || !PLACEHOLDERS.includes(placeholder) || !currentlyDraggedItem) {
-        return;
+      return;
     }
 
     const sourceList = currentlyDraggedItem.parentNode;
 
     // Scenario 1: Dragging from Available list to Sequence container
     if (sourceList === availableBlocksList) {
-        // Create a new block specifically for the sequence, with a remove button
-        const newBlockInSequence = createBlock(placeholder, true); 
-        patternSequence.appendChild(newBlockInSequence);
+      // Create a new block specifically for the sequence, with a remove button
+      const newBlockInSequence = createBlock(placeholder, true);
+      patternSequence.appendChild(newBlockInSequence);
 
-        // Remove the original block that was dragged from the available list
-        currentlyDraggedItem.remove();
-        
-        updatePreview();
-        checkPlaceholderVisibility();
-    } 
+      // Remove the original block that was dragged from the available list
+      currentlyDraggedItem.remove();
+
+      updatePreview();
+      checkPlaceholderVisibility();
+    }
     // Scenario 2: Reordering within Sequence (dropping onto the container itself, not another block)
     else if (sourceList === patternSequence) {
-        // Just append the block being dragged (it should already have its remove button)
-        patternSequence.appendChild(currentlyDraggedItem);
-        updatePreview(); // Update preview after reorder
+      // Just append the block being dragged (it should already have its remove button)
+      patternSequence.appendChild(currentlyDraggedItem);
+      updatePreview(); // Update preview after reorder
     }
-    
+
     // Ensure all blocks in the sequence have remove buttons
     ensureRemoveButtons();
   }
-  
+
   // Handlers for reordering *within* the sequence
   function handleDragOverBlock(e) {
-      e.preventDefault(); 
-      // Optional: add visual indication on the block being hovered over
+    e.preventDefault();
+    // Optional: add visual indication on the block being hovered over
   }
 
   function handleDropOnBlock(e) {
-      e.preventDefault();
-      e.stopPropagation(); // Prevent drop event bubbling to parent container
-      
-      if (!currentlyDraggedItem || currentlyDraggedItem === e.target) {
-          return; // Can't drop on itself
-      }
+    e.preventDefault();
+    e.stopPropagation(); // Prevent drop event bubbling to parent container
 
-      // Insert the dragged item before the target item
-      patternSequence.insertBefore(currentlyDraggedItem, e.target.closest('.placeholder-block'));
-      updatePreview();
-      
-      // Ensure all blocks have remove buttons after reordering
-      ensureRemoveButtons();
+    if (!currentlyDraggedItem || currentlyDraggedItem === e.target) {
+      return; // Can't drop on itself
+    }
+
+    // Insert the dragged item before the target item
+    patternSequence.insertBefore(currentlyDraggedItem, e.target.closest('.placeholder-block'));
+    updatePreview();
+
+    // Ensure all blocks have remove buttons after reordering
+    ensureRemoveButtons();
   }
 
   // --- Category Management Functions ---
@@ -371,7 +509,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['categoryRules'], (result) => {
       const rules = result.categoryRules || [];
       categoryRulesContainer.innerHTML = ''; // Clear existing
-      
+
       rules.forEach((rule, index) => {
         const ruleElement = createCategoryRuleElement(rule, index);
         categoryRulesContainer.appendChild(ruleElement);
@@ -386,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function validateAndSaveCategoryRules(inputElement) {
     // Remove any existing error styling
     inputElement.classList.remove('error');
-    
+
     // Validate and save
     const isValid = validateCategoryInput(inputElement);
     if (!isValid) {
@@ -394,7 +532,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Don't save invalid data, but don't prevent typing
       return;
     }
-    
+
     // Save if valid
     saveCategoryRules();
   }
@@ -406,29 +544,29 @@ document.addEventListener('DOMContentLoaded', () => {
    */
   function validateCategoryInput(inputElement) {
     const value = inputElement.value.trim();
-    
+
     if (inputElement.classList.contains('category-name-input')) {
       // Category name validation
       if (value.length === 0) return true; // Allow empty while typing
       if (value.length < 2) return false; // Too short
       if (value.length > 50) return false; // Too long
-      
+
       // Check for duplicate names
       const allNameInputs = categoryRulesContainer.querySelectorAll('.category-name-input');
-      const duplicateCount = Array.from(allNameInputs).filter(input => 
+      const duplicateCount = Array.from(allNameInputs).filter(input =>
         input !== inputElement && input.value.trim().toLowerCase() === value.toLowerCase()
       ).length;
-      
+
       return duplicateCount === 0;
     } else if (inputElement.classList.contains('category-extensions-input')) {
       // Extensions validation
       if (value.length === 0) return true; // Allow empty while typing
-      
+
       // Check format: comma-separated, no spaces around commas, no dots
       const extensionsRegex = /^[a-zA-Z0-9]+(,[a-zA-Z0-9]+)*$/;
       return extensionsRegex.test(value);
     }
-    
+
     return true;
   }
 
@@ -438,20 +576,20 @@ document.addEventListener('DOMContentLoaded', () => {
   function saveCategoryRules() {
     const rules = [];
     const ruleElements = categoryRulesContainer.querySelectorAll('.category-rule');
-    
+
     ruleElements.forEach(ruleEl => {
       const nameInput = ruleEl.querySelector('.category-name-input');
       const extensionsInput = ruleEl.querySelector('.category-extensions-input');
-      
+
       const name = nameInput.value.trim();
       const extensions = extensionsInput.value.trim();
-      
+
       // Only save rules that have both name and extensions
       if (name && extensions) {
         rules.push({ name, extensions });
       }
     });
-    
+
     chrome.storage.local.set({ categoryRules: rules }, () => {
       console.log('Category rules saved:', rules.length, 'rules');
     });
@@ -465,7 +603,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const index = categoryRulesContainer.children.length;
     const ruleElement = createCategoryRuleElement(newRule, index);
     categoryRulesContainer.appendChild(ruleElement);
-    
+
     // Focus on the name input for immediate editing
     const nameInput = ruleElement.querySelector('.category-name-input');
     nameInput.focus();
@@ -537,9 +675,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Initialization ---
-  populateAvailableBlocks();
-  populateDescriptions(); // Populate the descriptions area
-  loadSettings(); // Load saved settings and build initial sequence
+  loadCustomPlaceholdersAndUpdateLists(() => {
+    populateAvailableBlocks();
+    populateDescriptions();
+    loadSettings();
+  });
   saveButton.addEventListener('click', saveSettings);
 
   // Add drag listeners to the main drop zone
@@ -561,6 +701,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Add event listener for resetting categories
   if (resetCategoriesBtn) {
     resetCategoriesBtn.addEventListener('click', resetToDefaultCategories);
+  }
+
+  // Initialize custom placeholders section
+  loadCustomPlaceholderRules();
+  if (addCustomPlaceholderBtn) {
+    addCustomPlaceholderBtn.addEventListener('click', addNewCustomPlaceholder);
   }
 
   // Initialize floating icon toggle

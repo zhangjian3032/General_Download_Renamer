@@ -39,13 +39,14 @@ let isEnabled = true;
 let userPattern = DEFAULT_PATTERN;
 let userSeparator = DEFAULT_SEPARATOR;
 let categoryRules = []; // Will be loaded from storage
+let customPlaceholders = []; // User-defined custom placeholders
 
 // Initialize extension state from storage
-chrome.storage.local.get(['enabled', 'pattern', 'separator', 'categoryRules'], (result) => {
+chrome.storage.local.get(['enabled', 'pattern', 'separator', 'categoryRules', 'customPlaceholders'], (result) => {
   isEnabled = result.enabled !== undefined ? result.enabled : true;
   userPattern = result.pattern || DEFAULT_PATTERN;
   userSeparator = result.separator !== undefined ? result.separator : DEFAULT_SEPARATOR;
-  
+
   // Load category rules (use defaults if none saved yet)
   if (result.categoryRules) {
     categoryRules = result.categoryRules;
@@ -54,12 +55,16 @@ chrome.storage.local.get(['enabled', 'pattern', 'separator', 'categoryRules'], (
     categoryRules = [...DEFAULT_CATEGORY_RULES];
     chrome.storage.local.set({ categoryRules: categoryRules });
   }
-  
-  console.log('Extension initialized:', { 
-    isEnabled, 
-    userPattern, 
-    userSeparator, 
-    categoryRulesCount: categoryRules.length 
+
+  // Load custom placeholders
+  customPlaceholders = Array.isArray(result.customPlaceholders) ? result.customPlaceholders : [];
+
+  console.log('Extension initialized:', {
+    isEnabled,
+    userPattern,
+    userSeparator,
+    categoryRulesCount: categoryRules.length,
+    customPlaceholdersCount: customPlaceholders.length
   });
 });
 
@@ -69,20 +74,25 @@ chrome.storage.onChanged.addListener((changes) => {
     isEnabled = changes.enabled.newValue;
     console.log('Extension enabled state changed:', isEnabled);
   }
-  
+
   if (changes.pattern !== undefined) {
     userPattern = changes.pattern.newValue;
     console.log('Renaming pattern changed:', userPattern);
   }
-  
+
   if (changes.separator !== undefined) {
     userSeparator = changes.separator.newValue;
     console.log('Separator changed:', userSeparator);
   }
-  
+
   if (changes.categoryRules !== undefined) {
     categoryRules = changes.categoryRules.newValue;
     console.log('Category rules updated:', categoryRules.length, 'rules');
+  }
+
+  if (changes.customPlaceholders !== undefined) {
+    customPlaceholders = Array.isArray(changes.customPlaceholders.newValue) ? changes.customPlaceholders.newValue : [];
+    console.log('Custom placeholders updated:', customPlaceholders.length);
   }
 });
 
@@ -97,25 +107,28 @@ function processDownload(downloadItem, suggest) {
     suggest({ filename: downloadItem.filename });
     return;
   }
-  
+
   try {
     // Get the original filename and split it
     const originalFilename = downloadItem.filename;
     const { name: nameWithoutExt, ext } = splitFilename(originalFilename);
-    
+
     // Get download source URL and extract domain
     const sourceUrl = downloadItem.url || '';
     const domain = extractDomain(sourceUrl);
-    
+
+    // Get referrer/tab URL if available
+    const tabUrl = downloadItem.referrer || '';
+
     // Get current date and time
     const date = getFormattedDate();
     const time = getFormattedTime();
     const timestamp = getFormattedTimestamp();
-    
+
     // Determine file category using custom rules
     const category = getCategoryForFile(originalFilename, categoryRules);
     console.log(`File category determined: ${originalFilename} -> ${category} (using ${categoryRules.length} custom rules)`);
-    
+
     // Create placeholder values object
     const placeholders = {
       domain: domain,
@@ -124,17 +137,63 @@ function processDownload(downloadItem, suggest) {
       time: time,
       originalFilename: nameWithoutExt,
       category: category,
+      sourceUrl: sourceUrl,
+      tabUrl: tabUrl,
       ext: ext
     };
-    
+
+    // Apply custom placeholders derived from existing placeholders
+    if (Array.isArray(customPlaceholders) && customPlaceholders.length > 0) {
+      for (const def of customPlaceholders) {
+        const name = (def && def.name) ? String(def.name) : '';
+        const from = (def && def.base) ? String(def.base) : '';
+        const regexStr = (def && def.regex) ? String(def.regex) : '';
+        const keywordsRaw = def && def.keywords !== undefined ? String(def.keywords) : '';
+
+        if (!name || !from || !regexStr) {
+          continue;
+        }
+
+        const sourceValue = placeholders[from] || '';
+        if (!sourceValue) {
+          placeholders[name] = '';
+          continue;
+        }
+
+        // Keyword gating: if keywords provided, ensure at least one keyword appears
+        const keywords = keywordsRaw
+          .split(',')
+          .map(k => k.trim())
+          .filter(k => k.length > 0);
+
+        const gatePass = keywords.length === 0
+          ? true
+          : keywords.some(k => sourceValue.toLowerCase().includes(k.toLowerCase()));
+
+        if (!gatePass) {
+          placeholders[name] = '';
+          continue;
+        }
+
+        try {
+          const re = new RegExp(regexStr);
+          const m = sourceValue.match(re);
+          placeholders[name] = (m && m[1]) ? String(m[1]) : '';
+        } catch (e) {
+          console.error('Invalid custom placeholder regex:', name, regexStr, e);
+          placeholders[name] = '';
+        }
+      }
+    }
+
     // Process the user's pattern, passing the separator
     let newFilename = processPattern(userPattern, placeholders, userSeparator);
-    
+
     // Sanitize the new filename to remove invalid characters
     newFilename = sanitizeFilename(newFilename);
-    
+
     console.log(`Renaming: ${originalFilename} -> ${newFilename}`);
-    
+
     // Suggest the new filename
     suggest({ filename: newFilename });
   } catch (error) {
@@ -152,23 +211,23 @@ chrome.action.onClicked.addListener((tab) => {
 // Listen for extension install or update
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('Extension installed or updated:', details.reason);
-  
+
   // Set default settings if not already set
   chrome.storage.local.get(['enabled', 'pattern', 'separator'], (result) => {
     const settings = {};
-    
+
     if (result.enabled === undefined) {
       settings.enabled = true;
     }
-    
+
     if (!result.pattern) {
       settings.pattern = DEFAULT_PATTERN;
     }
-    
+
     if (result.separator === undefined) {
       settings.separator = DEFAULT_SEPARATOR;
     }
-    
+
     if (Object.keys(settings).length > 0) {
       chrome.storage.local.set(settings, () => {
         console.log('Default settings set:', settings);
@@ -180,11 +239,11 @@ chrome.runtime.onInstalled.addListener((details) => {
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Received message:', message);
-  
+
   if (message.action === 'openOptionsPage') {
     chrome.runtime.openOptionsPage();
   }
-  
+
   // Always return true if you're sending a response asynchronously
   return true;
 });

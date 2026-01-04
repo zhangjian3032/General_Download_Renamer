@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>General Download Renamer - Options</title>
   <link rel="stylesheet" href="options.css">
 </head>
+
 <body>
   <div class="container">
     <div class="header-with-toggle">
@@ -23,7 +25,7 @@
 
     <div class="option-group pattern-builder">
       <label>Build your Renaming Pattern:</label>
-      
+
       <!-- Placeholder Descriptions Area -->
       <div id="placeholder-descriptions" class="pattern-info">
         <h4>Available Placeholders:</h4>
@@ -32,8 +34,9 @@
         </ul>
       </div>
 
-      <p class="description">Drag blocks from the list below to 'Current Pattern Sequence'. The file extension <code>{ext}</code> will always be added automatically.</p>
-      
+      <p class="description">Drag blocks from the list below to 'Current Pattern Sequence'. The file extension
+        <code>{ext}</code> will always be added automatically.</p>
+
       <div class="builder-area">
         <div class="block-container available-blocks">
           <h3>Available Placeholders</h3>
@@ -41,10 +44,10 @@
             <!-- Draggable blocks will be added here by JS -->
           </div>
         </div>
-        
+
         <div class="block-container pattern-sequence-container">
           <h3>Current Pattern Sequence</h3>
-          
+
           <!-- Separator Selection -->
           <div class="separator-selector">
             <label for="separator-select">Separator between blocks:</label>
@@ -55,37 +58,50 @@
               <option value="*">Asterisk (*)</option>
               <option value="x">Letter (x)</option>
               <option value=" ">Space ( )</option>
-              <option value="">None</option> 
+              <option value="">None</option>
             </select>
           </div>
 
-           <div id="pattern-sequence" class="drop-zone">
-             <!-- Dropped blocks will appear here -->
-             <span class="placeholder-text">Drop blocks here</span>
-           </div>
-           <div class="pattern-preview">
-             <strong>Preview:</strong> <span id="pattern-preview-text"></span><code>.{ext}</code>
-           </div>
+          <div id="pattern-sequence" class="drop-zone">
+            <!-- Dropped blocks will appear here -->
+            <span class="placeholder-text">Drop blocks here</span>
+          </div>
+          <div class="pattern-preview">
+            <strong>Preview:</strong> <span id="pattern-preview-text"></span><code>.{ext}</code>
+          </div>
         </div>
       </div>
     </div>
-    
+
+    <div class="option-group custom-placeholders-section">
+      <h3>Custom Placeholders</h3>
+      <p class="description">
+        Define placeholders derived from existing ones using keywords and a regex with one capture group.
+        Base options include {domain}, {originalFilename}, {date}, {time}, {timestamp}, {category}, {sourceUrl},
+        {tabUrl}.
+      </p>
+      <div id="custom-placeholders-container"></div>
+      <div class="custom-placeholders-buttons">
+        <button id="add-custom-placeholder-btn" class="secondary-btn">+ Add Custom Placeholder</button>
+      </div>
+    </div>
+
     <div class="option-group categories-section">
       <h3>File Categories</h3>
       <p class="description">
         Customize how files are categorized. Edit any category name or extensions list below.
         The <code>{category}</code> placeholder in your pattern will use these rules.
       </p>
-      
+
       <div id="category-rules-container">
         <!-- Category rules will be dynamically loaded here -->
       </div>
-      
+
       <div class="category-buttons">
         <button id="add-category-btn" class="secondary-btn">+ Add New Category</button>
         <button id="reset-categories-btn" class="reset-btn">Reset to Defaults</button>
       </div>
-      
+
       <div class="category-info">
         <small>Files that don't match any rule will be categorized as "unknown".</small>
       </div>
@@ -96,7 +112,8 @@
       <span id="status-message"></span>
     </div>
   </div>
-  
+
   <script src="options.js"></script>
 </body>
-</html> 
+
+</html>

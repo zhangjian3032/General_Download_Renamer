@@ -71,22 +71,55 @@
     if (!popupPanel || !floatingIcon) return;
 
     // Fetch pattern AND separator
-    chrome.storage.local.get(['enabled', 'pattern', 'separator'], (result) => {
+    chrome.storage.local.get(['enabled', 'pattern', 'separator', 'customPlaceholders'], (result) => {
       currentSettings.enabled = result.enabled !== undefined ? result.enabled : true;
       currentSettings.pattern = result.pattern || DEFAULT_PATTERN;
       // Use underscore as default separator if none is saved
-      currentSettings.separator = result.separator !== undefined ? result.separator : '_'; 
+      currentSettings.separator = result.separator !== undefined ? result.separator : '_';
 
       // --- Construct Preview String ---
       const placeholdersInPattern = (currentSettings.pattern.match(/\{([^}]+)\}/g) || [])
         .map(p => p.slice(1, -1)) // Extract name from {name}
         .filter(p => p !== 'ext'); // Exclude {ext}
       const previewString = placeholdersInPattern
-        .map(p => `{${p}}`) // Re-add braces for display
-        .join(currentSettings.separator); // Join with loaded separator
-      // --- End Preview Construction ---
+        .map(p => `{${p}}`)
+        .join(currentSettings.separator);
+      const currentPatternDisplay = previewString;
+      const now = new Date();
+      const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+      const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+      const timestamp = `${date}-${time}`;
+      const tabUrl = window.location && window.location.href ? window.location.href : '';
+      const domain = window.location && window.location.hostname ? window.location.hostname : 'unknown';
+      const baseValues = { domain, date, time, timestamp, tabUrl };
+      const customDefs = Array.isArray(result.customPlaceholders) ? result.customPlaceholders : [];
+      const resolvedValues = { ...baseValues };
+      if (customDefs.length > 0) {
+        customDefs.forEach(def => {
+          const name = def && def.name ? String(def.name) : '';
+          const from = def && def.base ? String(def.base) : '';
+          const regexStr = def && def.regex ? String(def.regex) : '';
+          const keywordsRaw = def && def.keywords !== undefined ? String(def.keywords) : '';
+          if (!name || !from || !regexStr) return;
+          const sourceValue = resolvedValues[from] || '';
+          const keywords = keywordsRaw.split(',').map(k => k.trim()).filter(k => k.length > 0);
+          const gatePass = keywords.length === 0 ? true : keywords.some(k => sourceValue.toLowerCase().includes(k.toLowerCase()));
+          if (!gatePass) return;
+          try {
+            const re = new RegExp(regexStr);
+            const m = sourceValue.match(re);
+            if (m && m[1]) resolvedValues[name] = String(m[1]);
+          } catch (_) { }
+        });
+      }
+      const previewResolvedString = placeholdersInPattern
+        .map(p => {
+          const v = resolvedValues[p];
+          return v !== undefined && v !== null && String(v).length > 0 ? String(v) : `{${p}}`;
+        })
+        .join(currentSettings.separator);
 
-      // Build popup HTML, using the constructed previewString
+      // Build popup HTML
       popupPanel.innerHTML = `
         <h3>Download Renamer</h3>
         <div class="dr-toggle-container">
@@ -103,7 +136,10 @@
         </div>
         <div class="dr-footer">
           Current pattern:
-          <span class="dr-current-pattern">${escapeHtml(previewString)}<code>.{ext}</code></span> 
+          <span class="dr-current-pattern">${escapeHtml(currentPatternDisplay)}<code>.{ext}</code></span>
+          <br>
+          Preview pattern:
+          <span class="dr-current-pattern">${escapeHtml(previewResolvedString)}<code>.{ext}</code></span>
         </div>
       `;
 
@@ -126,7 +162,7 @@
       // setTimeout(() => { popupPanel.innerHTML = ''; }, 200);
     }
   }
-  
+
   /**
    * Adds event listeners to elements inside the popup.
    */
@@ -141,7 +177,7 @@
       optionsBtn.addEventListener('click', handleOptionsClick);
     }
   }
-  
+
   /**
    * Handles the enable/disable toggle change.
    * @param {Event} event - The change event.
@@ -151,7 +187,7 @@
     chrome.storage.local.set({ enabled: isEnabled });
     // No need to call updateIconAppearance, storage listener will handle it
   }
-  
+
   /**
    * Handles the click on the options button.
    */
@@ -166,42 +202,39 @@
   function positionPopup() {
     if (!popupPanel || !floatingIcon) return;
 
+    const margin = 12;
     const iconRect = floatingIcon.getBoundingClientRect();
-    const panelRect = popupPanel.getBoundingClientRect(); // Might be 0 if first time
-    const panelWidth = panelRect.width || 260; // Use default width if needed
-    const panelHeight = panelRect.height || 150; // Estimate height
+
+    const computed = window.getComputedStyle(popupPanel);
+    let restoreHidden = false;
+    if (computed.display === 'none') {
+      popupPanel.style.visibility = 'hidden';
+      popupPanel.style.display = 'block';
+      restoreHidden = true;
+    }
+
+    const panelRect = popupPanel.getBoundingClientRect();
+    const panelWidth = panelRect.width || 340;
+    const panelHeight = panelRect.height || 200;
 
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    const margin = 10; // Space from icon and viewport edges
 
-    // Try position above the icon first
-    let top = iconRect.top - panelHeight - margin;
-    let left = iconRect.left + (iconRect.width / 2) - (panelWidth / 2); // Center horizontally
+    const centeredLeft = iconRect.left + (iconRect.width / 2) - (panelWidth / 2);
+    let left = Math.min(Math.max(centeredLeft, margin), viewportWidth - panelWidth - margin);
 
-    // If above goes off-screen, try below
-    if (top < margin) {
-      top = iconRect.bottom + margin;
-    }
-
-    // Adjust horizontal position to stay in viewport
-    if (left < margin) {
-      left = margin;
-    } else if (left + panelWidth > viewportWidth - margin) {
-      left = viewportWidth - panelWidth - margin;
-    }
-    
-    // Adjust vertical position to stay in viewport
-    if (top + panelHeight > viewportHeight - margin) {
-        top = Math.max(margin, viewportHeight - panelHeight - margin);
-        // If positioning below also went off screen (small screens)
-        // and positioning above would have been better, reconsider.
-        let potentialTop = iconRect.top - panelHeight - margin;
-        if(potentialTop >= margin) top = potentialTop;
-    }
+    const aboveTop = iconRect.top - panelHeight - margin;
+    const belowTop = iconRect.bottom + margin;
+    let top = aboveTop >= margin ? aboveTop : belowTop;
+    top = Math.min(Math.max(top, margin), viewportHeight - panelHeight - margin);
 
     popupPanel.style.top = `${top}px`;
     popupPanel.style.left = `${left}px`;
+
+    if (restoreHidden) {
+      popupPanel.style.visibility = '';
+      popupPanel.style.display = '';
+    }
   }
 
   /**
@@ -210,7 +243,7 @@
    */
   function updateIconAppearance() {
     if (!floatingIcon) return;
-    
+
     if (currentSettings.enabled) {
       floatingIcon.classList.add('active');
       floatingIcon.classList.remove('inactive');
@@ -246,26 +279,26 @@
       if (!isDragging) return;
       // Calculate new position within viewport bounds
       const x = Math.min(
-        window.innerWidth - floatingIcon.offsetWidth, 
+        window.innerWidth - floatingIcon.offsetWidth,
         Math.max(0, e.clientX - offsetX)
       );
       const y = Math.min(
-        window.innerHeight - floatingIcon.offsetHeight, 
+        window.innerHeight - floatingIcon.offsetHeight,
         Math.max(0, e.clientY - offsetY)
       );
       floatingIcon.style.left = `${x}px`;
       floatingIcon.style.top = `${y}px`;
       // Overwrite fixed bottom/right positioning
-      floatingIcon.style.bottom = 'auto'; 
+      floatingIcon.style.bottom = 'auto';
       floatingIcon.style.right = 'auto';
     }
 
     function stopDrag() {
-        if(isDragging) {
-            isDragging = false;
-            floatingIcon.style.transition = 'transform 0.2s ease-out'; // Re-enable transition
-            document.removeEventListener('mousemove', handleDrag);
-        }
+      if (isDragging) {
+        isDragging = false;
+        floatingIcon.style.transition = 'transform 0.2s ease-out'; // Re-enable transition
+        document.removeEventListener('mousemove', handleDrag);
+      }
     }
   }
 
@@ -303,11 +336,11 @@
    */
   function setupClickHandlers() {
     if (!floatingIcon) return;
-    
+
     // Need a flag to distinguish drag from click
     let dragHappened = false;
     floatingIcon.addEventListener('mousedown', () => { dragHappened = false; });
-    floatingIcon.addEventListener('mousemove', () => { if(isDragging) dragHappened = true; });
+    floatingIcon.addEventListener('mousemove', () => { if (isDragging) dragHappened = true; });
 
     // Hide button click handler
     const hideButton = floatingIcon.querySelector('#dr-hide-button');
@@ -323,7 +356,7 @@
     floatingIcon.addEventListener('click', (e) => {
       // Don't trigger if clicking hide button
       if (e.target.id === 'dr-hide-button') return;
-      
+
       if (dragHappened) return; // Don't trigger click after drag
       e.stopPropagation();
       if (popupPanel && popupPanel.classList.contains('visible')) {
@@ -401,25 +434,25 @@
         updateIconAppearance();
         // If popup is visible, update its content
         if (popupPanel && popupPanel.classList.contains('visible')) {
-           // Rebuild content to reflect change
-           showPopup();
+          // Rebuild content to reflect change
+          showPopup();
         }
       }
     }
   }
-  
+
   /**
   * Simple HTML escaping
   */
   function escapeHtml(unsafe) {
-      if (!unsafe) return '';
-      return unsafe
-           .replace(/&/g, "&amp;")
-           .replace(/</g, "&lt;")
-           .replace(/>/g, "&gt;")
-           .replace(/"/g, "&quot;")
-           .replace(/'/g, "&#039;");
-   }
+    if (!unsafe) return '';
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
 
   // --- Message Handling ---
 
@@ -449,23 +482,23 @@
       console.log('[DR Icon] Already initialized.');
       return;
     }
-    
+
     console.log('[DR Icon] Initializing...');
-    
+
     // Check if floating icon should be shown (default: true)
     chrome.storage.local.get(['showFloatingIcon'], (result) => {
       const showFloatingIcon = result.showFloatingIcon !== undefined ? result.showFloatingIcon : true;
-      
+
       if (showFloatingIcon) {
         createIcon();
         createPopup();
         loadInitialSettings();
       }
     });
-    
+
     // Listen for storage changes
     chrome.storage.onChanged.addListener(handleStorageChange);
-    
+
     // Listen for messages from popup
     chrome.runtime.onMessage.addListener(handleMessage);
   }

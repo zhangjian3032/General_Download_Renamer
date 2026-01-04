@@ -307,6 +307,45 @@ input:checked + .toggle-slider:before {
   font-family: monospace;
 }
 
+/* Custom Placeholders Section */
+.custom-placeholders-section {
+  margin-top: 20px;
+}
+
+#custom-placeholders-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-placeholder-rule {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1.5fr 1.5fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.custom-placeholder-rule input,
+.custom-placeholder-rule select {
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.delete-custom-placeholder-btn {
+  background: #ff4d4d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.delete-custom-placeholder-btn:hover {
+  background: #cc0000;
+}
+
 /* Save Button & Status */
 .button-group {
   display: flex;
